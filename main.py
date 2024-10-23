@@ -27,6 +27,11 @@ from collections import Counter
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional
+if os.name != "nt":
+    import resource
+else:
+    # NOTE: Windows doesn't have alarm() so we use a fake signal that test262-runner will emit on timeout
+    signal.SIGALRM = -3221225501
 
 from tqdm import tqdm
 
@@ -94,6 +99,10 @@ def run_streaming_script(
         "-t",
         str(timeout),
     ]
+    
+    # NOTE: Windows doesn't support resource limits
+    if os.name == "nt":
+        limit_memory = None
 
     return subprocess.run(
         command,
@@ -220,6 +229,9 @@ def run_tests(
             probable_result = TestResult.PROCESS_ERROR
             if process_result.returncode == -signal.SIGALRM:
                 probable_result = TestResult.TIMEOUT_ERROR
+            else:
+                print("Process failed with return code", process_result.returncode)
+                print(f"stderr output: {process_result.stderr}")
 
             add_result(
                 new_results,
@@ -633,8 +645,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    os.setpgrp()
-    try:
+    if os.name == "nt":
+        # FIXME: Find a way to kill subprocesses on exit on Windows
         main()
-    except KeyboardInterrupt:
-        os.killpg(0, signal.SIGKILL)
+    else:
+        os.setpgrp()
+        try:
+            main()
+        except KeyboardInterrupt:
+            os.killpg(0, signal.SIGKILL)

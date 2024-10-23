@@ -23,6 +23,12 @@ class ResultParser:
             k: v for k, v in sorted(old_results["results"].items())
         }
         self.new_results: dict[str, str] = new_results["results"]
+        
+        normalize = lambda x: x.replace("\\", "/")
+        # Normalize paths to use forward slashes
+        self.old_results = {normalize(k): v for k, v in self.old_results.items()}
+        self.new_results = {normalize(k): v for k, v in self.new_results.items()}            
+        
         self.regressions = regressions
         self.intersection_only = intersection_only
 

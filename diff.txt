@@ -1,0 +1,79 @@
+diff --git a/main.py b/main.py
+index 507adbe..525b9be 100755
+--- a/main.py
++++ b/main.py
+@@ -14,7 +14,6 @@ import glob
+ import json
+ import multiprocessing
+ import os
+-import resource
+ import signal
+ import subprocess
+ import sys
+@@ -26,6 +25,11 @@ from collections import Counter
+ from enum import Enum
+ from pathlib import Path
+ from typing import Any, Callable, Optional
++if os.name != "nt":
++    import resource
++else:
++    # NOTE: Windows doesn't have alarm() so we use a fake signal that test262-runner will emit on timeout
++    signal.SIGALRM = -3221225501
+ 
+ from tqdm import tqdm
+ 
+@@ -96,6 +100,10 @@ def run_streaming_script(
+         "-t",
+         str(timeout),
+     ]
++    
++    # NOTE: Windows doesn't support resource limits
++    if os.name == "nt":
++        limit_memory = None
+ 
+     return subprocess.run(
+         command,
+@@ -227,6 +235,9 @@ def run_tests(
+             probable_result = TestResult.PROCESS_ERROR
+             if process_result.returncode == -signal.SIGALRM:
+                 probable_result = TestResult.TIMEOUT_ERROR
++            else:
++                print("Process failed with return code", process_result.returncode)
++                print(f"stderr output: {process_result.stderr}")
+ 
+             add_result(
+                 new_results,
+@@ -660,8 +671,12 @@ def main() -> None:
+ 
+ 
+ if __name__ == "__main__":
+-    os.setpgrp()
+-    try:
++    if os.name == "nt":
++        # FIXME: Find a way to kill subprocesses on exit on Windows
+         main()
+-    except KeyboardInterrupt:
+-        os.killpg(0, signal.SIGKILL)
++    else:
++        os.setpgrp()
++        try:
++            main()
++        except KeyboardInterrupt:
++            os.killpg(0, signal.SIGKILL)
+diff --git a/per_file_result_diff.py b/per_file_result_diff.py
+index 638790f..66844a8 100755
+--- a/per_file_result_diff.py
++++ b/per_file_result_diff.py
+@@ -23,6 +23,12 @@ class ResultParser:
+             k: v for k, v in sorted(old_results["results"].items())
+         }
+         self.new_results: dict[str, str] = new_results["results"]
++        
++        normalize = lambda x: x.replace("\\", "/")
++        # Normalize paths to use forward slashes
++        self.old_results = {normalize(k): v for k, v in self.old_results.items()}
++        self.new_results = {normalize(k): v for k, v in self.new_results.items()}            
++        
+         self.regressions = regressions
+         self.intersection_only = intersection_only
+ 
